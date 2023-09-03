@@ -12,6 +12,7 @@ from pyvlx.log import PYVLXLOG
 
 from ha_mqtt.ha_device import HaDevice
 from ha_mqtt.mqtt_device_base import MqttDeviceSettings
+from ha_mqtt.mqtt_switch import MqttSwitch
 from mqtt_cover import MqttCover
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -32,7 +33,8 @@ MQTT_PASSWORD = config.get("mqtt", "password", fallback=None)
 VLX_HOST = config.get("velux", "host")
 VLX_PW = config.get("velux", "password")
 # [log]
-VERBOSE = config.get("log", "verbose")
+VERBOSE = config.get("log", "verbose", fallback=False)
+KLF200LOG = config.get("log", "klf200", fallback=False)
 LOGFILE = config.get("log", "logfile", fallback=None)
 
 APPNAME = "veluxmqtthomeassistant"
@@ -45,6 +47,12 @@ if VERBOSE:
 else:
     loglevel = logging.INFO
 
+if KLF200LOG:
+    pyvlxLogLevel = logging.DEBUG
+else:
+    pyvlxLogLevel = logging.INFO
+
+
 if LOGFILE:
     logging.basicConfig(filename=LOGFILE, format=LOGFORMAT, level=loglevel)
 else:
@@ -56,31 +64,42 @@ if VERBOSE:
 else:
     logging.debug("INFO MODE")
 
-PYVLXLOG.setLevel(logging.FATAL)
+PYVLXLOG.setLevel(pyvlxLogLevel)
 ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(logging.FATAL)
+ch.setLevel(pyvlxLogLevel)
 PYVLXLOG.addHandler(ch)
 
 class VeluxMqttCover:
     def __init__(self, mqttc, vlxnode, mqttid):
-        logging.debug("Registering %s to Homeassistant" % (vlxnode.name))
+        logging.debug("Registering %s to Homeassistant (Type: %s)" % (vlxnode.name, type(vlxnode)))
         self.vlxnode = vlxnode
         self.haDevice = HaDevice("DEV-" + vlxnode.name, "dev-" + mqttid)
-        self.coverDevice = MqttCover(MqttDeviceSettings("cover", "dev-" + mqttid + "-cover", mqttc, self.haDevice))
+        self.coverDevice = MqttCover(MqttDeviceSettings("Cover", "dev-" + mqttid + "-cover", mqttc, self.haDevice))
+        self.limitSwitchDevice = MqttSwitch(MqttDeviceSettings("Keep open", "dev-" + mqttid + "-keepopen", mqttc, self.haDevice))
 
     async def registerMqttCallbacks(self):
         self.coverDevice.callback_open = self.mqtt_callback_open
         self.coverDevice.callback_close = self.mqtt_callback_close
         self.coverDevice.callback_stop = self.mqtt_callback_stop
         self.coverDevice.callback_position = self.mqtt_callback_position
+        self.limitSwitchDevice.callback_on = self.mqtt_callback_keepopen_on
+        self.limitSwitchDevice.callback_off = self.mqtt_callback_keepopen_off
         
     def updateNode(self):
+        logging.debug("Updating %s", self.vlxnode.name)
+
         position = self.vlxnode.position.position_percent
         self.coverDevice.publish_position(position)
         if position < 50:
             self.coverDevice.publish_state('open')
         else:
             self.coverDevice.publish_state('closed')
+        
+        max_position = self.vlxnode.limitation_max.position
+        if max_position < 100:
+            self.limitSwitchDevice.publish_state('on')
+        else:
+            self.limitSwitchDevice.publish_state('off')
     
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
@@ -97,6 +116,14 @@ class VeluxMqttCover:
     def mqtt_callback_position(self, position):
         logging.debug("Moving %s to position %s" % (self.vlxnode.name, position))
         asyncio.run(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
+
+    def mqtt_callback_keepopen_on(self):
+        logging.debug("Enable 'keep open' limitation of %s" % (self.vlxnode.name))
+        asyncio.run(self.vlxnode.set_position_limitations(position_max=Position(position_percent=0), position_min=Position(position_percent=0)))
+
+    def mqtt_callback_keepopen_off(self):
+        logging.debug("Disable 'keep open' limitation of %s" % (self.vlxnode.name))
+        asyncio.run((self.vlxnode.clear_position_limitations()))
 
     def __del__(self):
         logging.debug("Unregistering %s from Homeassistant" % (self.vlxnode.name))
@@ -149,6 +176,11 @@ class VeluxMqttHomeassistant:
                 self.mqttDevices[mqttid] = mqttCover
                 await mqttCover.registerMqttCallbacks()
                 logging.debug("watching: %s" % vlxnode.name)
+    
+    async def update_device_state(self):
+        for vlxnode in self.pyvlx.nodes:
+            if isinstance(vlxnode, OpeningDevice):
+                await self.pyvlx.get_limitation(vlxnode.node_id)        
 
     async def vlxnode_callback(self, vlxnode):
         logging.debug("%s at %d%%" % (vlxnode.name, vlxnode.position.position_percent))
@@ -159,7 +191,6 @@ class VeluxMqttHomeassistant:
 
     def generate_id(self, vlxnode):
         return "vlx-" + vlxnode.name.replace(" ", "-").lower()
-
 
     def __del__(self):
         for mqttDeviceId in self.mqttDevices:
@@ -196,6 +227,7 @@ if __name__ == '__main__':
         LOOP.run_until_complete(veluxMqttHomeassistant.connect_mqtt())
         LOOP.run_until_complete(veluxMqttHomeassistant.connect_klf200(LOOP))
         LOOP.run_until_complete(veluxMqttHomeassistant.register_devices())
+        LOOP.run_until_complete(veluxMqttHomeassistant.update_device_state())
 
         LOOP.run_forever()
     except KeyboardInterrupt:

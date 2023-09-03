@@ -1,0 +1,3 @@
+homeassistant-mqtt-binding==2.0.3
+paho-mqtt==1.6.1
+PyYAML==6.0.1

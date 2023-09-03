@@ -75,7 +75,12 @@ class VeluxMqttCover:
         self.coverDevice.callback_position = self.mqtt_callback_position
         
     def updateNode(self):
-        self.coverDevice.publish_position(self.vlxnode.position.position_percent)
+        position = self.vlxnode.position.position_percent
+        self.coverDevice.publish_position(position)
+        if position < 50:
+            self.coverDevice.publish_state('open')
+        else:
+            self.coverDevice.publish_state('closed')
     
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)

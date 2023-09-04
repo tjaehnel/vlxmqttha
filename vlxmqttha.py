@@ -37,7 +37,7 @@ VERBOSE = config.get("log", "verbose", fallback=False)
 KLF200LOG = config.get("log", "klf200", fallback=False)
 LOGFILE = config.get("log", "logfile", fallback=None)
 
-APPNAME = "veluxmqtthomeassistant"
+APPNAME = "vlxmqttha"
 
 # init logging 
 LOGFORMAT = '%(asctime)-15s %(message)s'

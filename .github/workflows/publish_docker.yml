@@ -40,16 +40,6 @@ jobs:
         uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-      
-      - name: Docker image tags for releases
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          echo "DOCKER_TAGS=${{ steps.meta.outputs.tags }} latest" >> $GITHUB_ENV
-        
-      - name: Docker image tags for non-releases
-        if: startsWith(github.ref, 'refs/tags/') == false
-        run: |
-          echo "DOCKER_TAGS=dev" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
@@ -57,5 +47,5 @@ jobs:
           context: .
           platforms: linux/amd64, linux/arm64, linux/arm/v6, linux/arm/v7
           push: true
-          tags: ${{ env.DOCKER_TAGS }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

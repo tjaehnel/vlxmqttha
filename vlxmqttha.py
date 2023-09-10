@@ -29,6 +29,7 @@ MQTT_HOST = config.get("mqtt", "host")
 MQTT_PORT = config.getint("mqtt", "port")
 MQTT_LOGIN = config.get("mqtt", "login", fallback=None)
 MQTT_PASSWORD = config.get("mqtt", "password", fallback=None)
+MQTT_PREFIX = config.get("mqtt", "DEV-", fallback="")
 # [velux]
 VLX_HOST = config.get("velux", "host")
 VLX_PW = config.get("velux", "password")
@@ -90,9 +91,9 @@ class VeluxMqttCover:
     def __init__(self, mqttc, vlxnode, mqttid):
         logging.debug("Registering %s to Homeassistant (Type: %s)" % (vlxnode.name, type(vlxnode)))
         self.vlxnode = vlxnode
-        self.haDevice = HaDevice("DEV-" + vlxnode.name, "dev-" + mqttid)
-        self.coverDevice = MqttCover(MqttDeviceSettings("Cover", "dev-" + mqttid + "-cover", mqttc, self.haDevice))
-        self.limitSwitchDevice = MqttSwitch(MqttDeviceSettings("Keep open", "dev-" + mqttid + "-keepopen", mqttc, self.haDevice))
+        self.haDevice = HaDevice(MQTT_PREFIX + vlxnode.name, MQTT_PREFIX + mqttid)
+        self.coverDevice = MqttCover(MqttDeviceSettings("Cover", MQTT_PREFIX + mqttid, mqttc, self.haDevice))
+        self.limitSwitchDevice = MqttSwitch(MqttDeviceSettings("Keep open", MQTT_PREFIX + mqttid + "-keepopen", mqttc, self.haDevice))
 
     async def registerMqttCallbacks(self):
         self.coverDevice.callback_open = self.mqtt_callback_open

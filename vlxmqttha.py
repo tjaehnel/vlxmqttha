@@ -70,6 +70,23 @@ ch.setLevel(pyvlxLogLevel)
 PYVLXLOG.addHandler(ch)
 
 class VeluxMqttCover:
+    """
+    This class represents the bridge between one MQTT cover device and the actual cover
+    
+    It is in charge of triggering the registration in MQTT (using Homeassistant AutoDiscovery)
+    and forwarding commands and state changes between KLF 200 and MQTT
+
+    Attributes
+    ----------
+    vlxnode : 
+       PyVLX Object to talk to the Cover through KLF 200
+    haDevice :
+       MQTT representation of the Homeassistant device
+    coverDevice :
+       MQTT representation of the Homeassistant cover entity
+    limitSwitchDevice :
+       MQTT representation of the Homeassistant limit switch entity
+    """
     def __init__(self, mqttc, vlxnode, mqttid):
         logging.debug("Registering %s to Homeassistant (Type: %s)" % (vlxnode.name, type(vlxnode)))
         self.vlxnode = vlxnode
@@ -86,6 +103,7 @@ class VeluxMqttCover:
         self.limitSwitchDevice.callback_off = self.mqtt_callback_keepopen_off
         
     def updateNode(self):
+        """ Callback for node state changes sent from KLF 200 """
         logging.debug("Updating %s", self.vlxnode.name)
 
         position = self.vlxnode.position.position_percent
@@ -131,10 +149,26 @@ class VeluxMqttCover:
 
 
 class VeluxMqttHomeassistant:
+    """
+    This class manages the connections to KLF 200 and MQTT Broker and holds a list
+    of all registered device objects
+
+    Attributes
+    ----------
+    mqttc :
+        MQTT client
+    pyvlx :
+        Object representing KLF 200
+    mqttDevices : list<VeluxMqttCover>
+        list of all registered devices
+    
+    
+    """
     def __init__(self):
         # MQTT
         MQTT_CLIENT_ID = APPNAME + "_%d" % os.getpid()
         self.mqttc = mqtt.Client(MQTT_CLIENT_ID)
+        self.pyvlx = None
         self.mqttDevices = {}
 
     async def connect_mqtt(self):

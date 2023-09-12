@@ -9,7 +9,8 @@ import time
 
 from paho.mqtt.client import Client, MQTTMessage
 
-from ha_mqtt import mqtt_device_base, util
+from ha_mqtt import mqtt_device_base
+from ha_mqtt.util import HaDeviceClass
 from ha_mqtt.mqtt_device_base import MqttDeviceSettings
 
 
@@ -30,21 +31,23 @@ class MqttCover(mqtt_device_base.MqttDeviceBase):
     device_type = "cover"
     #initial_state = util.OFF
 
-    def __init__(self, settings: MqttDeviceSettings):
+    def __init__(self, settings: MqttDeviceSettings, device_class: HaDeviceClass):
         # internal tracker of the state
         #self.state: bool = self.__class__.initial_state
 
-        # callback executed when a OPEN command is received via MQTT
+        # callback executed when an OPEN command is received via MQTT
         self.callback_open = lambda: None
         # callback executed when a CLOSE command is received via MQTT
         self.callback_close = lambda: None
         # callback executed when a STOP command is received via MQTT
         self.callback_stop = lambda: None
-        # callback executed when a opening position is received via MQTT
+        # callback executed when an opening position is received via MQTT
         self.callback_position = lambda: None
         
         self.command_topic = ""
         self.position_topic = ""
+
+        self.device_class = device_class
 
         super().__init__(settings)
 
@@ -61,6 +64,7 @@ class MqttCover(mqtt_device_base.MqttDeviceBase):
         self.add_config_option("set_position_topic", self.command_topic)
         self.add_config_option("position_open", 0)
         self.add_config_option("position_closed", 100)
+        self.add_config_option("device_class", self.device_class.value)
 
         self._client.subscribe(self.command_topic)
         self._client.message_callback_add(self.command_topic, self.command_callback)

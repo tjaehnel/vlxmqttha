@@ -7,12 +7,13 @@ import configparser
 import paho.mqtt.client as mqtt
 import argparse
 import asyncio
-from pyvlx import Position, PyVLX, OpeningDevice
+from pyvlx import Position, PyVLX, OpeningDevice, Window, Blind, Awning, RollerShutter, GarageDoor, Gate, Blade
 from pyvlx.log import PYVLXLOG
 
 from ha_mqtt.ha_device import HaDevice
 from ha_mqtt.mqtt_device_base import MqttDeviceSettings
 from ha_mqtt.mqtt_switch import MqttSwitch
+from ha_mqtt.util import HaDeviceClass
 from mqtt_cover import MqttCover
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -29,7 +30,7 @@ MQTT_HOST = config.get("mqtt", "host")
 MQTT_PORT = config.getint("mqtt", "port")
 MQTT_LOGIN = config.get("mqtt", "login", fallback=None)
 MQTT_PASSWORD = config.get("mqtt", "password", fallback=None)
-MQTT_PREFIX = config.get("mqtt", "DEV-", fallback="")
+MQTT_HAPREFIX = config.get("mqtt", "haprefix", fallback="")
 # [velux]
 VLX_HOST = config.get("velux", "host")
 VLX_PW = config.get("velux", "password")
@@ -91,10 +92,28 @@ class VeluxMqttCover:
     def __init__(self, mqttc, vlxnode, mqttid):
         logging.debug("Registering %s to Homeassistant (Type: %s)" % (vlxnode.name, type(vlxnode)))
         self.vlxnode = vlxnode
-        self.haDevice = HaDevice(MQTT_PREFIX + vlxnode.name, MQTT_PREFIX + mqttid)
-        self.coverDevice = MqttCover(MqttDeviceSettings("Cover", MQTT_PREFIX + mqttid, mqttc, self.haDevice))
-        self.limitSwitchDevice = MqttSwitch(MqttDeviceSettings("Keep open", MQTT_PREFIX + mqttid + "-keepopen", mqttc, self.haDevice))
+        self.haDevice = HaDevice(MQTT_HAPREFIX + vlxnode.name, MQTT_HAPREFIX + mqttid)
+        self.coverDevice = MqttCover(
+            MqttDeviceSettings("", MQTT_HAPREFIX + mqttid, mqttc, self.haDevice),
+            self.getHaDeviceClassFromVlxNode(vlxnode))
+        self.limitSwitchDevice = MqttSwitch(MqttDeviceSettings("Keep open", MQTT_HAPREFIX + mqttid + "-keepopen", mqttc, self.haDevice))
 
+    def getHaDeviceClassFromVlxNode(self, vlxnode):
+        if isinstance(vlxnode, Window):
+            return HaDeviceClass.WINDOW
+        if isinstance(vlxnode, Blind):
+            return HaDeviceClass.BLIND
+        if isinstance(vlxnode, Awning):
+            return HaDeviceClass.AWNING
+        if isinstance(vlxnode, RollerShutter):
+            return HaDeviceClass.SHUTTER
+        if isinstance(vlxnode, GarageDoor):
+            return HaDeviceClass.GARAGE
+        if isinstance(vlxnode, Gate):
+            return HaDeviceClass.GATE
+        if isinstance(vlxnode, Blade):
+            return HaDeviceClass.SHADE
+        
     async def registerMqttCallbacks(self):
         self.coverDevice.callback_open = self.mqtt_callback_open
         self.coverDevice.callback_close = self.mqtt_callback_close

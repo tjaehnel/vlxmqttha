@@ -31,7 +31,7 @@ class MqttCover(mqtt_device_base.MqttDeviceBase):
     device_type = "cover"
     #initial_state = util.OFF
 
-    def __init__(self, settings: MqttDeviceSettings, device_class: HaDeviceClass):
+    def __init__(self, settings: MqttDeviceSettings, device_class: HaDeviceClass, inverse_position : bool = False):
         # internal tracker of the state
         #self.state: bool = self.__class__.initial_state
 
@@ -48,6 +48,7 @@ class MqttCover(mqtt_device_base.MqttDeviceBase):
         self.position_topic = ""
 
         self.device_class = device_class
+        self.inverse_position = inverse_position
 
         super().__init__(settings)
 
@@ -62,8 +63,12 @@ class MqttCover(mqtt_device_base.MqttDeviceBase):
         self.add_config_option("position_topic", self.position_topic)
         self.add_config_option("command_topic", self.command_topic)
         self.add_config_option("set_position_topic", self.command_topic)
-        self.add_config_option("position_open", 0)
-        self.add_config_option("position_closed", 100)
+        if self.inverse_position:
+            self.add_config_option("position_open", 100)
+            self.add_config_option("position_closed", 0)
+        else:
+            self.add_config_option("position_open", 0)
+            self.add_config_option("position_closed", 100)
         self.add_config_option("device_class", self.device_class.value)
 
         self._client.subscribe(self.command_topic)

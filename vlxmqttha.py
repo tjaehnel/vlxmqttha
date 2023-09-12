@@ -131,18 +131,30 @@ class VeluxMqttCover:
 
         position = self.vlxnode.position.position_percent
         target_position = self.vlxnode.target_position.position_percent
-        self.coverDevice.publish_position(position)
-        state = "stopped"
-        if target_position < position:
-            state = "opening"
-        elif target_position > position:
-            state = "closing"
-        elif position == 100:
-            state = "closed"
+
+        mqtt_state = ""
+        if isinstance(self.vlxnode, Awning):
+            self.coverDevice.publish_position(100 - position)
+            if target_position > position:
+                mqtt_state = "opening"
+            elif target_position > position:
+                mqtt_state = "closing"
+            elif position == 0:
+                mqtt_state = "closed"
+            else:
+                mqtt_state = "open"
         else:
-            state = "open"
+            self.coverDevice.publish_position(position)
+            if target_position < position:
+                mqtt_state = "opening"
+            elif target_position > position:
+                mqtt_state = "closing"
+            elif position == 100:
+                mqtt_state = "closed"
+            else:
+                mqtt_state = "open"
         
-        self.coverDevice.publish_state(state)
+        self.coverDevice.publish_state(mqtt_state)
         
         max_position = self.vlxnode.limitation_max.position
         if max_position < 100:
@@ -164,7 +176,7 @@ class VeluxMqttCover:
 
     def mqtt_callback_position(self, position):
         logging.debug("Moving %s to position %s" % (self.vlxnode.name, position))
-        asyncio.run(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
+        asyncio.run(self.vlxnode.set_position(Position(position_percent=100-int(position)), wait_for_completion=False))
 
     def mqtt_callback_keepopen_on(self):
         logging.debug("Enable 'keep open' limitation of %s" % (self.vlxnode.name))

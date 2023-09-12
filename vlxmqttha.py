@@ -15,6 +15,7 @@ from ha_mqtt.mqtt_device_base import MqttDeviceSettings
 from ha_mqtt.mqtt_switch import MqttSwitch
 from ha_mqtt.util import HaDeviceClass
 from mqtt_cover import MqttCover
+from mqtt_switch_with_icon import MqttSwitchWithIcon
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
                                  description="Allows to control devices paired with Velux KLF200 via MQTT.\n" \
@@ -96,7 +97,10 @@ class VeluxMqttCover:
         self.coverDevice = MqttCover(
             MqttDeviceSettings("", MQTT_HAPREFIX + mqttid, mqttc, self.haDevice),
             self.getHaDeviceClassFromVlxNode(vlxnode))
-        self.limitSwitchDevice = MqttSwitch(MqttDeviceSettings("Keep open", MQTT_HAPREFIX + mqttid + "-keepopen", mqttc, self.haDevice))
+        self.limitSwitchDevice = MqttSwitchWithIcon(
+            MqttDeviceSettings("Keep open", MQTT_HAPREFIX + mqttid + "-keepopen", mqttc, self.haDevice),
+            "mdi:lock-outline"
+            )
 
     def getHaDeviceClassFromVlxNode(self, vlxnode):
         if isinstance(vlxnode, Window):

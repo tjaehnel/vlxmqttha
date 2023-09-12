@@ -12,7 +12,6 @@ from pyvlx.log import PYVLXLOG
 
 from ha_mqtt.ha_device import HaDevice
 from ha_mqtt.mqtt_device_base import MqttDeviceSettings
-from ha_mqtt.mqtt_switch import MqttSwitch
 from ha_mqtt.util import HaDeviceClass
 from mqtt_cover import MqttCover
 from mqtt_switch_with_icon import MqttSwitchWithIcon
@@ -131,18 +130,26 @@ class VeluxMqttCover:
         logging.debug("Updating %s", self.vlxnode.name)
 
         position = self.vlxnode.position.position_percent
+        target_position = self.vlxnode.target_position.position_percent
         self.coverDevice.publish_position(position)
-        if position < 50:
-            self.coverDevice.publish_state('open')
+        state = "stopped"
+        if target_position < position:
+            state = "opening"
+        elif target_position > position:
+            state = "closing"
+        elif position == 100:
+            state = "closed"
         else:
-            self.coverDevice.publish_state('closed')
+            state = "open"
+        
+        self.coverDevice.publish_state(state)
         
         max_position = self.vlxnode.limitation_max.position
         if max_position < 100:
             self.limitSwitchDevice.publish_state('on')
         else:
             self.limitSwitchDevice.publish_state('off')
-    
+        
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
         asyncio.run(self.vlxnode.open(wait_for_completion=False))

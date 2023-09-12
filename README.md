@@ -14,5 +14,6 @@ NOTE: For now this integration only supports Cover devices!
 It has the following additional features over the default integration:
 * Creates one HA device per cover instead of only using entities
 * Adds a switch to each entity which keeps the cover open. This is helpful to create automations that prevent closing shutters on open terrace doors.
+* When the cover is moving reports "opening" and "closing" state respectively (thanks to https://github.com/TilmanK/pyvlx)
 
 This integration was inpired by https://github.com/nbartels/vlx2mqtt which also offers an MQTT bridge but does not support Homeassistant AutoDiscovery.

@@ -30,7 +30,9 @@ MQTT_HOST = config.get("mqtt", "host")
 MQTT_PORT = config.getint("mqtt", "port")
 MQTT_LOGIN = config.get("mqtt", "login", fallback=None)
 MQTT_PASSWORD = config.get("mqtt", "password", fallback=None)
-MQTT_HAPREFIX = config.get("mqtt", "haprefix", fallback="")
+# [homeassistant]
+HA_PREFIX = config.get("homeassistant", "prefix", fallback="")
+HA_INVERT_AWNING = config.get("homeassistant", "invert_awning", fallback=False)
 # [velux]
 VLX_HOST = config.get("velux", "host")
 VLX_PW = config.get("velux", "password")
@@ -92,15 +94,23 @@ class VeluxMqttCover:
     def __init__(self, mqttc, vlxnode, mqttid):
         logging.debug("Registering %s to Homeassistant (Type: %s)" % (vlxnode.name, type(vlxnode)))
         self.vlxnode = vlxnode
-        self.haDevice = HaDevice(MQTT_HAPREFIX + vlxnode.name, MQTT_HAPREFIX + mqttid)
-        self.coverDevice = MqttCover(
-            MqttDeviceSettings("", MQTT_HAPREFIX + mqttid, mqttc, self.haDevice),
-            self.getHaDeviceClassFromVlxNode(vlxnode)
+        self.mqttc = mqttc
+        self.mqttid = mqttid
+        self.haDevice = HaDevice(HA_PREFIX + vlxnode.name, HA_PREFIX + mqttid)
+        self.coverDevice = self.makeMqttCover()
+        self.limitSwitchDevice = self.makeMqttKeepOpenSwitch()
+    
+    def makeMqttCover(self):
+        return MqttCover(
+            MqttDeviceSettings("", HA_PREFIX + self.mqttid, self.mqttc, self.haDevice),
+            self.getHaDeviceClassFromVlxNode(self.vlxnode)
         )
-        self.limitSwitchDevice = MqttSwitchWithIcon(
-            MqttDeviceSettings("Keep open", MQTT_HAPREFIX + mqttid + "-keepopen", mqttc, self.haDevice),
+
+    def makeMqttKeepOpenSwitch(self):
+        return MqttSwitchWithIcon(
+            MqttDeviceSettings("Keep open", HA_PREFIX + self.mqttid + "-keepopen", self.mqttc, self.haDevice),
             "mdi:lock-outline"
-            )
+        )
 
     def getHaDeviceClassFromVlxNode(self, vlxnode):
         if isinstance(vlxnode, Window):
@@ -185,6 +195,44 @@ class VeluxMqttCover:
         logging.debug("Unregistering %s from Homeassistant" % (self.vlxnode.name))
         self.coverDevice.close()
 
+class VeluxMqttCoverInverted (VeluxMqttCover):
+    def __init__(self, mqttc, vlxnode, mqttid):
+        super().__init__(mqttc, vlxnode, mqttid)
+    
+    def makeMqttCover(self):
+        return MqttCover(
+            MqttDeviceSettings("", HA_PREFIX + self.mqttid, self.mqttc, self.haDevice),
+            self.getHaDeviceClassFromVlxNode(self.vlxnode),
+            True
+        )
+
+    def mqtt_callback_open(self):
+        logging.debug("Opening %s", self.vlxnode.name)
+        asyncio.run(self.vlxnode.close(wait_for_completion=False))
+
+    def mqtt_callback_close(self):
+        logging.debug("Closing %s", self.vlxnode.name)
+        asyncio.run(self.vlxnode.open(wait_for_completion=False))
+
+    def updateCover(self):
+        position = self.vlxnode.position.position_percent
+        target_position = self.vlxnode.target_position.position_percent
+
+        mqtt_state = ""
+        self.coverDevice.publish_position(position)
+        if target_position < position:
+            mqtt_state = "closing"
+        elif target_position > position:
+            mqtt_state = "opening"
+        elif position == 0:
+            mqtt_state = "closed"
+        else:
+            mqtt_state = "open"
+        
+        self.coverDevice.publish_state(mqtt_state)
+
+
+
 
 class VeluxMqttHomeassistant:
     """
@@ -244,7 +292,11 @@ class VeluxMqttHomeassistant:
             if isinstance(vlxnode, OpeningDevice):
                 vlxnode.register_device_updated_cb(self.vlxnode_callback)
                 mqttid = self.generate_id(vlxnode)
-                mqttCover = VeluxMqttCover(self.mqttc, vlxnode, mqttid)
+                mqttCover = None
+                if isinstance(vlxnode, Awning) and HA_INVERT_AWNING == True:
+                    mqttCover = VeluxMqttCoverInverted(self.mqttc, vlxnode, mqttid)
+                else:
+                    mqttCover = VeluxMqttCover(self.mqttc, vlxnode, mqttid)
                 self.mqttDevices[mqttid] = mqttCover
                 await mqttCover.registerMqttCallbacks()
                 logging.debug("watching: %s" % vlxnode.name)
@@ -274,7 +326,6 @@ class VeluxMqttHomeassistant:
 
         logging.info("Disconnecting from KLF200")
         self.pyvlx.disconnect()
-
 
 # Use the signal module to handle signals
 signal.signal(signal.SIGTERM, lambda: asyncio.get_event_loop().stop())

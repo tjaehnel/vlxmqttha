@@ -95,7 +95,8 @@ class VeluxMqttCover:
         self.haDevice = HaDevice(MQTT_HAPREFIX + vlxnode.name, MQTT_HAPREFIX + mqttid)
         self.coverDevice = MqttCover(
             MqttDeviceSettings("", MQTT_HAPREFIX + mqttid, mqttc, self.haDevice),
-            self.getHaDeviceClassFromVlxNode(vlxnode))
+            self.getHaDeviceClassFromVlxNode(vlxnode)
+        )
         self.limitSwitchDevice = MqttSwitchWithIcon(
             MqttDeviceSettings("Keep open", MQTT_HAPREFIX + mqttid + "-keepopen", mqttc, self.haDevice),
             "mdi:lock-outline"
@@ -129,33 +130,27 @@ class VeluxMqttCover:
         """ Callback for node state changes sent from KLF 200 """
         logging.debug("Updating %s", self.vlxnode.name)
 
+        self.updateCover()
+        self.updateLimitSwitch()
+        
+    def updateCover(self):
         position = self.vlxnode.position.position_percent
         target_position = self.vlxnode.target_position.position_percent
 
         mqtt_state = ""
-        if isinstance(self.vlxnode, Awning):
-            self.coverDevice.publish_position(100 - position)
-            if target_position > position:
-                mqtt_state = "opening"
-            elif target_position > position:
-                mqtt_state = "closing"
-            elif position == 0:
-                mqtt_state = "closed"
-            else:
-                mqtt_state = "open"
+        self.coverDevice.publish_position(position)
+        if target_position < position:
+            mqtt_state = "opening"
+        elif target_position > position:
+            mqtt_state = "closing"
+        elif position == 100:
+            mqtt_state = "closed"
         else:
-            self.coverDevice.publish_position(position)
-            if target_position < position:
-                mqtt_state = "opening"
-            elif target_position > position:
-                mqtt_state = "closing"
-            elif position == 100:
-                mqtt_state = "closed"
-            else:
-                mqtt_state = "open"
+            mqtt_state = "open"
         
         self.coverDevice.publish_state(mqtt_state)
-        
+
+    def updateLimitSwitch(self):
         max_position = self.vlxnode.limitation_max.position
         if max_position < 100:
             self.limitSwitchDevice.publish_state('on')
@@ -176,7 +171,7 @@ class VeluxMqttCover:
 
     def mqtt_callback_position(self, position):
         logging.debug("Moving %s to position %s" % (self.vlxnode.name, position))
-        asyncio.run(self.vlxnode.set_position(Position(position_percent=100-int(position)), wait_for_completion=False))
+        asyncio.run(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
 
     def mqtt_callback_keepopen_on(self):
         logging.debug("Enable 'keep open' limitation of %s" % (self.vlxnode.name))

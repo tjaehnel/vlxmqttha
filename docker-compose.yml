@@ -1,0 +1,9 @@
+version: '3' 
+services: 
+  velux:
+    container_name: vlxmqttha
+    image: ghcr.io/tjaehnel/vlxmqttha:latest
+    restart: always 
+    volumes: 
+      - ./vlxmqttha.conf:/vlxmqttha.conf
+    restart: unless-stopped

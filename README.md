@@ -17,3 +17,20 @@ It has the following additional features over the default integration:
 * When the cover is moving reports "opening" and "closing" state respectively (thanks to https://github.com/TilmanK/pyvlx)
 
 This integration was inpired by https://github.com/nbartels/vlx2mqtt which also offers an MQTT bridge but does not support Homeassistant AutoDiscovery.
+
+Configuration and start
+-----------------------
+Rename configuration file **vlxmqttha.conf.template** to **vlxmqttha.conf** and change the parameters according to your needs.
+
+Then start the server using
+
+    # python3 ./vlxmqttha.py vlxmqttha.conf
+
+
+Docker image
+------------
+In order to run vlxmqttha as a docker container, you can use the provided docker-compose.yml file.
+Simply do your configuration in **vlxmqttha.conf** and the execute
+
+     # docker-compose up -d
+

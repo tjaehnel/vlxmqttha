@@ -7,6 +7,7 @@ import configparser
 import paho.mqtt.client as mqtt
 import argparse
 import asyncio
+from threading import Semaphore
 from pyvlx import Position, PyVLX, OpeningDevice, Window, Blind, Awning, RollerShutter, GarageDoor, Gate, Blade
 from pyvlx.log import PYVLXLOG
 
@@ -72,6 +73,22 @@ PYVLXLOG.setLevel(pyvlxLogLevel)
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(pyvlxLogLevel)
 PYVLXLOG.addHandler(ch)
+
+# define a semaphore as it seems the KLF200 can only handle 2 commands
+# at the same time and ignores the third one sent
+klf_command_semaphore = Semaphore(2)
+
+def call_async_blocking(coroutine):
+    logging.debug("Call Async")
+    klf_command_semaphore.acquire()
+    try:
+        future = asyncio.run_coroutine_threadsafe(coroutine, LOOP)
+        future.result()
+    except Exception as e:
+        logging.error(str(e))
+    klf_command_semaphore.release()
+    logging.debug("Async Done")
+
 
 class VeluxMqttCover:
     """
@@ -166,30 +183,30 @@ class VeluxMqttCover:
             self.limitSwitchDevice.publish_state('on')
         else:
             self.limitSwitchDevice.publish_state('off')
-        
+                
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
-        asyncio.run(self.vlxnode.open(wait_for_completion=False))
+        call_async_blocking(self.vlxnode.open(wait_for_completion=False))
 
     def mqtt_callback_close(self):
         logging.debug("Closing %s", self.vlxnode.name)
-        asyncio.run(self.vlxnode.close(wait_for_completion=False))
+        call_async_blocking(self.vlxnode.close(wait_for_completion=False))
 
     def mqtt_callback_stop(self):
         logging.debug("Stopping %s", self.vlxnode.name)
-        asyncio.run(self.vlxnode.stop(wait_for_completion=False))
+        call_async_blocking(self.vlxnode.stop(wait_for_completion=False))
 
     def mqtt_callback_position(self, position):
         logging.debug("Moving %s to position %s" % (self.vlxnode.name, position))
-        asyncio.run(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
+        call_async_blocking(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
 
     def mqtt_callback_keepopen_on(self):
         logging.debug("Enable 'keep open' limitation of %s" % (self.vlxnode.name))
-        asyncio.run(self.vlxnode.set_position_limitations(position_max=Position(position_percent=0), position_min=Position(position_percent=0)))
+        call_async_blocking(self.vlxnode.set_position_limitations(position_max=Position(position_percent=0), position_min=Position(position_percent=0)))
 
     def mqtt_callback_keepopen_off(self):
         logging.debug("Disable 'keep open' limitation of %s" % (self.vlxnode.name))
-        asyncio.run((self.vlxnode.clear_position_limitations()))
+        call_async_blocking((self.vlxnode.clear_position_limitations()))
 
     def __del__(self):
         logging.debug("Unregistering %s from Homeassistant" % (self.vlxnode.name))
@@ -208,11 +225,11 @@ class VeluxMqttCoverInverted (VeluxMqttCover):
 
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
-        asyncio.run(self.vlxnode.close(wait_for_completion=False))
+        call_async_blocking(self.vlxnode.close(wait_for_completion=False))
 
     def mqtt_callback_close(self):
         logging.debug("Closing %s", self.vlxnode.name)
-        asyncio.run(self.vlxnode.open(wait_for_completion=False))
+        call_async_blocking(self.vlxnode.open(wait_for_completion=False))
 
     def updateCover(self):
         position = self.vlxnode.position.position_percent

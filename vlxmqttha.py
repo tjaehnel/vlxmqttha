@@ -79,7 +79,6 @@ PYVLXLOG.addHandler(ch)
 klf_command_semaphore = Semaphore(2)
 
 def call_async_blocking(coroutine):
-    logging.debug("Call Async")
     klf_command_semaphore.acquire()
     try:
         future = asyncio.run_coroutine_threadsafe(coroutine, LOOP)
@@ -87,7 +86,6 @@ def call_async_blocking(coroutine):
     except Exception as e:
         logging.error(str(e))
     klf_command_semaphore.release()
-    logging.debug("Async Done")
 
 
 class VeluxMqttCover:

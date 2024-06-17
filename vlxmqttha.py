@@ -330,7 +330,7 @@ class VeluxMqttHomeassistant:
 
     def generate_id(self, vlxnode):
         umlauts = {ord('ä'):'ae', ord('ü'):'ue', ord('ö'):'oe', ord('ß'):'ss'}
-        return "vlx-" + vlxnode.name.replace(" ", "-").lower().replace.translate(umlauts)
+        return "vlx-" + vlxnode.name.replace(" ", "-").lower().translate(umlauts)
 
     def __del__(self):
         for mqttDeviceId in self.mqttDevices:

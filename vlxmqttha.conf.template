@@ -1,17 +1,22 @@
 [mqtt]
-host = 0.0.0.0         # IP address of MQTT server
-port = 1883            # Port of MQTT server
-login = <login name>   # login name to connect to MQTT server
-password = <password>  # password to connect to MQTT server
+host = 0.0.0.0               # IP address of MQTT server
+port = 1883                  # Port of MQTT server
+login = <login name>         # login name to connect to MQTT server
+password = <password>        # password to connect to MQTT server
 
 [homeassistant]
-# prefix = DEV-        # All homeassistant devices and IDs are prefixed with that
-# invert_awning = true # Invert positions and open/close state for devices recognised as awnings
+# prefix = DEV-              # All homeassistant devices and IDs are prefixed with that
+# invert_awning = true       # Invert positions and open/close state for devices recognised as awnings
 
 [velux]
-host = 0.0.0.0         # IP address of KLF200 box
-password = <wifi pass> # Password to log into the KLF200 API (Equals to WiFi password but different from admin password)
+host = 0.0.0.0               # IP address of KLF200 box
+password = <wifi pass>       # Password to log into the KLF200 API (Equals to WiFi password but different from admin password)
 
 [log]
-# verbose = true       # More application logging
-# klf200 = true        # Log communication with KLF200 API
+# verbose = true             # More application logging
+# klf200 = true              # Log communication with KLF200 API
+
+[restart]
+restart_interval = 24        # Auto restart after N hours (0 = disabled)
+health_check_interval = 300  # Check KLF200 health every N seconds (0 = disabled)
+restart_on_error = true      # Auto restart on connection error

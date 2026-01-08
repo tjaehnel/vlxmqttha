@@ -1,4 +1,4 @@
 [submodule "mod/pyvlx"]
 	path = mod/pyvlx
-	url = https://github.com/tjaehnel/pyvlx.git
-	branch = master_vlxmqttha
+	url = https://github.com/Julius2342/pyvlx.git
+	branch = master

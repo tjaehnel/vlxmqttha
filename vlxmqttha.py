@@ -373,7 +373,9 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logging.info("Interrupted by keypress")
     finally:
-        del veluxMqttHomeassistant
-        os.unlink(pidfile)
+        if 'veluxMqttHomeassistant' in locals():
+            del veluxMqttHomeassistant
+        if 'pidfile' in locals() and os.path.isfile(pidfile):
+            os.unlink(pidfile)
     LOOP.close()
     sys.exit(0)

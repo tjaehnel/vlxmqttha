@@ -160,7 +160,7 @@ class VeluxMqttCover:
         
     def updateCover(self):
         position = self.vlxnode.position.position_percent
-        target_position = self.vlxnode.target_position.position_percent
+        target_position = self.vlxnode.target.position_percent
 
         mqtt_state = ""
         self.coverDevice.publish_position(position)
@@ -231,7 +231,7 @@ class VeluxMqttCoverInverted (VeluxMqttCover):
 
     def updateCover(self):
         position = self.vlxnode.position.position_percent
-        target_position = self.vlxnode.target_position.position_percent
+        target_position = self.vlxnode.target.position_percent
 
         mqtt_state = ""
         self.coverDevice.publish_position(position)
@@ -350,7 +350,8 @@ signal.signal(signal.SIGINT, lambda: asyncio.get_event_loop().stop())
 if __name__ == '__main__':
     # pylint: disable=invalid-name
     try:
-        LOOP = asyncio.get_event_loop()
+        LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(LOOP)
 
         pid = str(os.getpid())
         pidfile = "/tmp/vlxmqtthomeassistant.pid"

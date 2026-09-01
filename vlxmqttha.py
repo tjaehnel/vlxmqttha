@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import fcntl
 import signal
 import logging
 import configparser
@@ -43,6 +44,8 @@ KLF200LOG = config.get("log", "klf200", fallback=False)
 LOGFILE = config.get("log", "logfile", fallback=None)
 
 APPNAME = "vlxmqttha"
+
+GATEWAY_LIMITATION_MAX_RAW = 0xFF
 
 # init logging 
 LOGFORMAT = '%(asctime)-15s %(message)s'
@@ -176,19 +179,36 @@ class VeluxMqttCover:
         self.coverDevice.publish_state(mqtt_state)
 
     def updateLimitSwitch(self):
-        max_position = self.vlxnode.limitation_max.position
-        if max_position < 100:
+        if self.limitationMaxPercent() < 100:
             self.limitSwitchDevice.publish_state('on')
         else:
             self.limitSwitchDevice.publish_state('off')
-                
+
+    def limitationMaxPercent(self):
+        # pyvlx reads only the MSB of the limitation value from the frame and then
+        # stores that byte as if it were a full raw position, so a gateway reply
+        # arrives on the 0..200 scale while a locally set limit is a real raw value.
+        limitation = self.vlxnode.limitation_max
+        if limitation.position <= GATEWAY_LIMITATION_MAX_RAW:
+            return limitation.position // 2
+        return limitation.position_percent
+
+    def moveVlxNode(self, target_percent, action):
+        limitation_max = self.limitationMaxPercent()
+        if target_percent > limitation_max:
+            logging.info("Refusing to move %s to %d%%, limited to %d%%",
+                         self.vlxnode.name, target_percent, limitation_max)
+            self.updateCover()
+            return
+        call_async_blocking(action())
+
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.open(wait_for_completion=False))
+        self.moveVlxNode(0, lambda: self.vlxnode.open(wait_for_completion=False))
 
     def mqtt_callback_close(self):
         logging.debug("Closing %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.close(wait_for_completion=False))
+        self.moveVlxNode(100, lambda: self.vlxnode.close(wait_for_completion=False))
 
     def mqtt_callback_stop(self):
         logging.debug("Stopping %s", self.vlxnode.name)
@@ -196,15 +216,28 @@ class VeluxMqttCover:
 
     def mqtt_callback_position(self, position):
         logging.debug("Moving %s to position %s" % (self.vlxnode.name, position))
-        call_async_blocking(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
+        target_percent = int(position)
+        self.moveVlxNode(target_percent, lambda: self.vlxnode.set_position(Position(position_percent=target_percent), wait_for_completion=False))
 
     def mqtt_callback_keepopen_on(self):
         logging.debug("Enable 'keep open' limitation of %s" % (self.vlxnode.name))
-        call_async_blocking(self.vlxnode.set_position_limitations(position_max=Position(position_percent=0), position_min=Position(position_percent=0)))
+        call_async_blocking(self.applyKeepOpen(True))
 
     def mqtt_callback_keepopen_off(self):
         logging.debug("Disable 'keep open' limitation of %s" % (self.vlxnode.name))
-        call_async_blocking((self.vlxnode.clear_position_limitations()))
+        call_async_blocking(self.applyKeepOpen(False))
+
+    async def applyKeepOpen(self, enable):
+        try:
+            if enable:
+                await self.vlxnode.set_position_limitations(
+                    position_min=Position(position_percent=0),
+                    position_max=Position(position_percent=0))
+            else:
+                await self.vlxnode.clear_position_limitations()
+        finally:
+            await self.vlxnode.pyvlx.get_limitation(self.vlxnode.node_id)
+            self.updateLimitSwitch()
 
     def __del__(self):
         logging.debug("Unregistering %s from Homeassistant" % (self.vlxnode.name))
@@ -223,11 +256,11 @@ class VeluxMqttCoverInverted (VeluxMqttCover):
 
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.close(wait_for_completion=False))
+        self.moveVlxNode(100, lambda: self.vlxnode.close(wait_for_completion=False))
 
     def mqtt_callback_close(self):
         logging.debug("Closing %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.open(wait_for_completion=False))
+        self.moveVlxNode(0, lambda: self.vlxnode.open(wait_for_completion=False))
 
     def updateCover(self):
         position = self.vlxnode.position.position_percent
@@ -343,25 +376,42 @@ class VeluxMqttHomeassistant:
         logging.info("Disconnecting from KLF200")
         self.pyvlx.disconnect()
 
+def acquire_pidfile(path):
+    """Take an exclusive lock on the pid file.
+
+    The lock is held by the process, not by the file, so it is released by the
+    kernel even if the process is killed. A pid file left behind by a crash
+    therefore does not block the next start.
+
+    Returns the open file descriptor, or None if another instance holds the lock.
+    """
+    handle = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(handle)
+        return None
+    os.ftruncate(handle, 0)
+    os.write(handle, str(os.getpid()).encode())
+    os.fsync(handle)
+    return handle
+
 # Use the signal module to handle signals
 signal.signal(signal.SIGTERM, lambda: asyncio.get_event_loop().stop())
 signal.signal(signal.SIGINT, lambda: asyncio.get_event_loop().stop())
 
 if __name__ == '__main__':
     # pylint: disable=invalid-name
+    PIDFILE = "/tmp/vlxmqtthomeassistant.pid"
+    pidfile_handle = None
     try:
         LOOP = asyncio.new_event_loop()
         asyncio.set_event_loop(LOOP)
 
-        pid = str(os.getpid())
-        pidfile = "/tmp/vlxmqtthomeassistant.pid"
-
-        if os.path.isfile(pidfile):
-            print("%s already exists, exiting" % pidfile)
-            sys.exit()
-        file = open(pidfile, 'w')
-        file.write(pid)
-        file.close()
+        pidfile_handle = acquire_pidfile(PIDFILE)
+        if pidfile_handle is None:
+            print("%s is locked by another instance, exiting" % PIDFILE)
+            sys.exit(1)
 
         veluxMqttHomeassistant = VeluxMqttHomeassistant()
         LOOP.run_until_complete(veluxMqttHomeassistant.connect_mqtt())
@@ -375,7 +425,8 @@ if __name__ == '__main__':
     finally:
         if 'veluxMqttHomeassistant' in locals():
             del veluxMqttHomeassistant
-        if 'pidfile' in locals() and os.path.isfile(pidfile):
-            os.unlink(pidfile)
+        if pidfile_handle is not None:
+            os.unlink(PIDFILE)
+            os.close(pidfile_handle)
     LOOP.close()
     sys.exit(0)

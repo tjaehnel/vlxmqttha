@@ -176,19 +176,30 @@ class VeluxMqttCover:
         self.coverDevice.publish_state(mqtt_state)
 
     def updateLimitSwitch(self):
-        max_position = self.vlxnode.limitation_max.position
-        if max_position < 100:
+        if self.limitationMaxPercent() < 100:
             self.limitSwitchDevice.publish_state('on')
         else:
             self.limitSwitchDevice.publish_state('off')
-                
+
+    def limitationMaxPercent(self):
+        return self.vlxnode.limitation_max.position_percent
+
+    def moveVlxNode(self, target_percent, action):
+        limitation_max = self.limitationMaxPercent()
+        if target_percent > limitation_max:
+            logging.info("Refusing to move %s to %d%%, limited to %d%%",
+                         self.vlxnode.name, target_percent, limitation_max)
+            self.updateCover()
+            return
+        call_async_blocking(action())
+
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.open(wait_for_completion=False))
+        self.moveVlxNode(0, lambda: self.vlxnode.open(wait_for_completion=False))
 
     def mqtt_callback_close(self):
         logging.debug("Closing %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.close(wait_for_completion=False))
+        self.moveVlxNode(100, lambda: self.vlxnode.close(wait_for_completion=False))
 
     def mqtt_callback_stop(self):
         logging.debug("Stopping %s", self.vlxnode.name)
@@ -196,15 +207,28 @@ class VeluxMqttCover:
 
     def mqtt_callback_position(self, position):
         logging.debug("Moving %s to position %s" % (self.vlxnode.name, position))
-        call_async_blocking(self.vlxnode.set_position(Position(position_percent=int(position)), wait_for_completion=False))
+        target_percent = int(position)
+        self.moveVlxNode(target_percent, lambda: self.vlxnode.set_position(Position(position_percent=target_percent), wait_for_completion=False))
 
     def mqtt_callback_keepopen_on(self):
         logging.debug("Enable 'keep open' limitation of %s" % (self.vlxnode.name))
-        call_async_blocking(self.vlxnode.set_position_limitations(position_max=Position(position_percent=0), position_min=Position(position_percent=0)))
+        call_async_blocking(self.applyKeepOpen(True))
 
     def mqtt_callback_keepopen_off(self):
         logging.debug("Disable 'keep open' limitation of %s" % (self.vlxnode.name))
-        call_async_blocking((self.vlxnode.clear_position_limitations()))
+        call_async_blocking(self.applyKeepOpen(False))
+
+    async def applyKeepOpen(self, enable):
+        try:
+            if enable:
+                await self.vlxnode.set_position_limitations(
+                    position_min=Position(position_percent=0),
+                    position_max=Position(position_percent=0))
+            else:
+                await self.vlxnode.clear_position_limitations()
+        finally:
+            await self.vlxnode.pyvlx.get_limitation(self.vlxnode.node_id)
+            self.updateLimitSwitch()
 
     def __del__(self):
         logging.debug("Unregistering %s from Homeassistant" % (self.vlxnode.name))
@@ -223,11 +247,11 @@ class VeluxMqttCoverInverted (VeluxMqttCover):
 
     def mqtt_callback_open(self):
         logging.debug("Opening %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.close(wait_for_completion=False))
+        self.moveVlxNode(100, lambda: self.vlxnode.close(wait_for_completion=False))
 
     def mqtt_callback_close(self):
         logging.debug("Closing %s", self.vlxnode.name)
-        call_async_blocking(self.vlxnode.open(wait_for_completion=False))
+        self.moveVlxNode(0, lambda: self.vlxnode.open(wait_for_completion=False))
 
     def updateCover(self):
         position = self.vlxnode.position.position_percent

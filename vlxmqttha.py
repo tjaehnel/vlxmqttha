@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import fcntl
 import signal
 import logging
 import configparser
@@ -367,25 +368,42 @@ class VeluxMqttHomeassistant:
         logging.info("Disconnecting from KLF200")
         self.pyvlx.disconnect()
 
+def acquire_pidfile(path):
+    """Take an exclusive lock on the pid file.
+
+    The lock is held by the process, not by the file, so it is released by the
+    kernel even if the process is killed. A pid file left behind by a crash
+    therefore does not block the next start.
+
+    Returns the open file descriptor, or None if another instance holds the lock.
+    """
+    handle = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(handle)
+        return None
+    os.ftruncate(handle, 0)
+    os.write(handle, str(os.getpid()).encode())
+    os.fsync(handle)
+    return handle
+
 # Use the signal module to handle signals
 signal.signal(signal.SIGTERM, lambda: asyncio.get_event_loop().stop())
 signal.signal(signal.SIGINT, lambda: asyncio.get_event_loop().stop())
 
 if __name__ == '__main__':
     # pylint: disable=invalid-name
+    PIDFILE = "/tmp/vlxmqtthomeassistant.pid"
+    pidfile_handle = None
     try:
         LOOP = asyncio.new_event_loop()
         asyncio.set_event_loop(LOOP)
 
-        pid = str(os.getpid())
-        pidfile = "/tmp/vlxmqtthomeassistant.pid"
-
-        if os.path.isfile(pidfile):
-            print("%s already exists, exiting" % pidfile)
-            sys.exit()
-        file = open(pidfile, 'w')
-        file.write(pid)
-        file.close()
+        pidfile_handle = acquire_pidfile(PIDFILE)
+        if pidfile_handle is None:
+            print("%s is locked by another instance, exiting" % PIDFILE)
+            sys.exit(1)
 
         veluxMqttHomeassistant = VeluxMqttHomeassistant()
         LOOP.run_until_complete(veluxMqttHomeassistant.connect_mqtt())
@@ -399,7 +417,8 @@ if __name__ == '__main__':
     finally:
         if 'veluxMqttHomeassistant' in locals():
             del veluxMqttHomeassistant
-        if 'pidfile' in locals() and os.path.isfile(pidfile):
-            os.unlink(pidfile)
+        if pidfile_handle is not None:
+            os.unlink(PIDFILE)
+            os.close(pidfile_handle)
     LOOP.close()
     sys.exit(0)

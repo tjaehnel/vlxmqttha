@@ -45,6 +45,8 @@ LOGFILE = config.get("log", "logfile", fallback=None)
 
 APPNAME = "vlxmqttha"
 
+GATEWAY_LIMITATION_MAX_RAW = 0xFF
+
 # init logging 
 LOGFORMAT = '%(asctime)-15s %(message)s'
 
@@ -183,7 +185,13 @@ class VeluxMqttCover:
             self.limitSwitchDevice.publish_state('off')
 
     def limitationMaxPercent(self):
-        return self.vlxnode.limitation_max.position_percent
+        # pyvlx reads only the MSB of the limitation value from the frame and then
+        # stores that byte as if it were a full raw position, so a gateway reply
+        # arrives on the 0..200 scale while a locally set limit is a real raw value.
+        limitation = self.vlxnode.limitation_max
+        if limitation.position <= GATEWAY_LIMITATION_MAX_RAW:
+            return limitation.position // 2
+        return limitation.position_percent
 
     def moveVlxNode(self, target_percent, action):
         limitation_max = self.limitationMaxPercent()

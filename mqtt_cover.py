@@ -105,5 +105,5 @@ class MqttCover(mqtt_device_base.MqttDeviceBase):
             else:
                 self._logger.error("Unknown command '%s' for %s", str(msg.payload), self._unique_id)
         except Exception as e:
-            self._logger.error("Exception while processing received command '%s' for %s: ", str(msg.payload), self._unique_id, e)
+            self._logger.error("Exception while processing received command '%s' for %s: %s", str(msg.payload), self._unique_id, e)
  

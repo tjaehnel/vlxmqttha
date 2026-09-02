@@ -150,7 +150,23 @@ class VeluxMqttCover:
         self.coverDevice.callback_position = self.mqtt_callback_position
         self.limitSwitchDevice.callback_on = self.mqtt_callback_keepopen_on
         self.limitSwitchDevice.callback_off = self.mqtt_callback_keepopen_off
-        
+
+    def resubscribe(self):
+        """ Re-register everything that lives on the broker side
+
+        The broker forgets our subscriptions on every disconnect (we use a clean
+        session), and paho does not replay them when it reconnects. The message
+        callbacks are client side and survive, so only the subscribe() calls and
+        the discovery/availability messages have to be sent again.
+        """
+        logging.debug("Resubscribing %s", self.vlxnode.name)
+        self.coverDevice._client.subscribe(self.coverDevice.state_topic)
+        self.coverDevice._client.subscribe(self.coverDevice.command_topic)
+        self.coverDevice._send_discovery(False)
+        self.limitSwitchDevice._client.subscribe(self.limitSwitchDevice.state_topic)
+        self.limitSwitchDevice._client.subscribe(self.limitSwitchDevice.cmd_topic)
+        self.limitSwitchDevice._send_discovery(False)
+
     def updateNode(self):
         """ Callback for node state changes sent from KLF 200 """
         logging.debug("Updating %s", self.vlxnode.name)
@@ -282,6 +298,10 @@ class VeluxMqttHomeassistant:
         if MQTT_LOGIN:
             self.mqttc.username_pw_set(MQTT_LOGIN, MQTT_PASSWORD)
 
+        # Must be registered before connect() so the initial CONNACK is seen too
+        self.mqttc.on_connect = self.on_mqtt_connect
+        self.mqttc.on_disconnect = self.on_mqtt_disconnect
+
         # Connect to the broker and enter the main loop
         result = self.mqttc.connect(MQTT_HOST, MQTT_PORT, 60)
         while result != 0:
@@ -291,6 +311,30 @@ class VeluxMqttHomeassistant:
 
         self.mqttc.loop_start()
         await asyncio.sleep(1)
+
+    def on_mqtt_connect(self, client, userdata, flags, rc):
+        """ Called by paho on the initial connection and on every reconnect """
+        if rc != 0:
+            logging.error("MQTT connection refused by broker (code %s)", rc)
+            return
+        if not self.mqttDevices:
+            logging.info("Connected to MQTT broker")
+            return
+        logging.info("Reconnected to MQTT broker, resubscribing %d device(s)",
+                     len(self.mqttDevices))
+        for mqttDevice in self.mqttDevices.values():
+            try:
+                mqttDevice.resubscribe()
+            except Exception as e:
+                logging.error("Failed to resubscribe: %s", str(e))
+
+    def on_mqtt_disconnect(self, client, userdata, rc):
+        """ Called by paho whenever the broker connection drops """
+        if rc != 0:
+            logging.warning("Unexpected disconnection from MQTT broker (code %s), "
+                            "paho will reconnect", rc)
+        else:
+            logging.info("Disconnected from MQTT broker")
 
     async def connect_klf200(self, loop):
         logging.debug("klf200      : %s" % VLX_HOST)

@@ -332,6 +332,27 @@ class VeluxMqttHomeassistant:
         umlauts = {ord('ä'):'ae', ord('ü'):'ue', ord('ö'):'oe', ord('ß'):'ss'}
         return "vlx-" + vlxnode.name.replace(" ", "-").lower().translate(umlauts)
 
+    async def shutdown(self):
+        """ Cleanly tear down both connections
+
+        Leaving the KLF 200 with house status monitor enabled makes its next
+        TLS handshake hang until the gateway is power cycled, so the disconnect
+        has to be awaited rather than fired and forgotten.
+        """
+        logging.info("Shutting down")
+        if self.pyvlx is not None and self.pyvlx.connection.connected:
+            logging.info("Disconnecting from KLF200")
+            try:
+                await asyncio.wait_for(self.pyvlx.disconnect(), timeout=5)
+            except Exception as e:
+                logging.error("Error while disconnecting from KLF200: %s", str(e))
+        logging.info("Disconnecting from MQTT broker")
+        try:
+            self.mqttc.disconnect()
+            self.mqttc.loop_stop()
+        except Exception as e:
+            logging.error("Error while disconnecting from MQTT broker: %s", str(e))
+
     def __del__(self):
         for mqttDeviceId in self.mqttDevices:
             del self.mqttDevices[mqttDeviceId]
@@ -344,8 +365,14 @@ class VeluxMqttHomeassistant:
         self.pyvlx.disconnect()
 
 # Use the signal module to handle signals
-signal.signal(signal.SIGTERM, lambda: asyncio.get_event_loop().stop())
-signal.signal(signal.SIGINT, lambda: asyncio.get_event_loop().stop())
+# Python calls a handler with (signum, frame), so a zero argument lambda raises
+# TypeError instead of stopping the loop.
+def _handle_signal(signum, frame):
+    logging.info("Received signal %s, shutting down", signum)
+    LOOP.call_soon_threadsafe(LOOP.stop)
+
+signal.signal(signal.SIGTERM, _handle_signal)
+signal.signal(signal.SIGINT, _handle_signal)
 
 if __name__ == '__main__':
     # pylint: disable=invalid-name
@@ -374,6 +401,10 @@ if __name__ == '__main__':
         logging.info("Interrupted by keypress")
     finally:
         if 'veluxMqttHomeassistant' in locals():
+            try:
+                LOOP.run_until_complete(veluxMqttHomeassistant.shutdown())
+            except Exception as e:
+                logging.error("Error during shutdown: %s", str(e))
             del veluxMqttHomeassistant
         if 'pidfile' in locals() and os.path.isfile(pidfile):
             os.unlink(pidfile)
